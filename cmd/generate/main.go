@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"text/template"
 
 	"query-service/core"
@@ -18,13 +19,16 @@ type FieldData struct {
 	Type string
 }
 type TypeData struct {
-	TypeName   string
-	Fields     []FieldData
-	ColumnList string // not used in dynamic queries anymore
+	TypeName string
+	Fields   []FieldData
 }
 type FieldType struct {
 	Name   string
 	IsList bool
+}
+type GenerationData struct {
+	Types   []TypeData
+	HasDate bool
 }
 
 func main() {
@@ -33,6 +37,7 @@ func main() {
 		log.Fatal(err)
 	}
 	var types []TypeData
+	hasDate := false
 	for tn, def := range schema.Types {
 		if tn == "Query" || tn == "Mutation" {
 			continue
@@ -40,19 +45,46 @@ func main() {
 		td := TypeData{TypeName: tn}
 		for _, f := range def.Fields {
 			ft := resolveFieldType(f.Type)
+			mapped := mapFieldType(ft)
+			if mapped == "core.DateType" {
+				hasDate = true
+			}
 			td.Fields = append(td.Fields, FieldData{
 				Name: f.Name.Value,
-				Type: mapFieldType(ft),
+				Type: mapped,
 			})
 		}
 		types = append(types, td)
 	}
-	tpl, err := template.New("gen").Parse(tplSrc)
+
+	genData := GenerationData{
+		Types:   types,
+		HasDate: hasDate,
+	}
+
+	// Create a template with custom functions for singular and plural forms.
+	tpl := template.New("gen").Funcs(template.FuncMap{
+		"singular": func(s string) string {
+			// If the name ends with an "s", remove it.
+			if strings.HasSuffix(s, "s") {
+				return s[:len(s)-1]
+			}
+			return s
+		},
+		"plural": func(s string) string {
+			// If the name already ends with "s", return as is; otherwise append "s".
+			if strings.HasSuffix(s, "s") {
+				return s
+			}
+			return s + "s"
+		},
+	})
+	tpl, err = tpl.Parse(tplSrc)
 	if err != nil {
 		log.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err = tpl.Execute(&buf, types); err != nil {
+	if err = tpl.Execute(&buf, genData); err != nil {
 		log.Fatal(err)
 	}
 	os.MkdirAll("generated", 0755)
@@ -89,6 +121,8 @@ func mapFieldType(ft FieldType) string {
 		base = "graphql.Float"
 	case "Boolean":
 		base = "graphql.Boolean"
+	case "Date":
+		base = "core.DateType" // Use your custom Date scalar (defined in core/scalars.go)
 	default:
 		base = ft.Name + "Type"
 	}
@@ -104,19 +138,23 @@ package generated
 import (
 	"github.com/graphql-go/graphql"
 	"query-service/core"
-	"log"
 )
+
+{{if .HasDate}}
+// Custom scalar DateType from core package.
+var DateType = core.DateType
+{{end}}
 
 var QueryFields graphql.Fields
 
-{{range .}}
+{{range .Types}}
 // Declarations for the custom type and its WhereInput type
 var {{.TypeName}}Type *graphql.Object
 var {{.TypeName}}WhereInputType *graphql.InputObject
 {{end}}
 
 func init() {
-	{{range .}}
+	{{range .Types}}
 	{{.TypeName}}Type = graphql.NewObject(graphql.ObjectConfig{
 		Name: "{{.TypeName}}",
 		Fields: graphql.FieldsThunk(func() graphql.Fields {
@@ -136,17 +174,18 @@ func init() {
 	// Build the QueryFields map with two queries per entity.
 	// For each entity, one query for find-one (by ID) and one for find-many.
 	QueryFields = graphql.Fields{
-		{{range .}}
-		"{{.TypeName}}": &graphql.Field{
+		{{range .Types}}
+		"{{singular .TypeName}}": &graphql.Field{
 			Type: {{.TypeName}}Type,
 			Args: graphql.FieldConfigArgument{
 				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return core.ResolveSingle("{{.TypeName}}", p)
+				// Pass the singular form to the resolve helper.
+				return core.ResolveSingle("{{singular .TypeName}}", p)
 			},
 		},
-		"{{.TypeName}}s": &graphql.Field{
+		"{{plural .TypeName}}": &graphql.Field{
 			Type: graphql.NewList({{.TypeName}}Type),
 			Args: graphql.FieldConfigArgument{
 				"page":  &graphql.ArgumentConfig{Type: graphql.Int},
@@ -155,7 +194,8 @@ func init() {
 				"where": &graphql.ArgumentConfig{Type: {{.TypeName}}WhereInputType},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return core.ResolveMultiple("{{.TypeName}}", p)
+				// Always pass the singular form for table name derivation.
+				return core.ResolveMultiple("{{singular .TypeName}}", p)
 			},
 		},
 		{{end}}

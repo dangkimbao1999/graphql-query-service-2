@@ -1,13 +1,29 @@
-
-type Users {
-	id: ID!
-	name: String!
-	posts: [Post!]!
+# schema.graphql
+type User @entity {
+  id: ID!
+  name: String! @index(unique: true)
+  email: String @index
+  createdDate: Date
+  isActive: Boolean
+  profile: UserProfile
 }
 
-type Post {
-	id: ID!
-	title: String!
-	content: String!
-	author: Users!
+type UserProfile @entity {
+  id: ID!
+  bio: String
+  avatarUrl: String
+}
+
+type Post @entity {
+  id: ID!
+  title: String!
+  content: String
+  publishedDate: Date
+  author: User @index
+} 
+
+type Collection @entity {
+  id: ID!
+  address: String! @index(unique: true)
+  type: String
 }

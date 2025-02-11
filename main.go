@@ -36,7 +36,7 @@ func main() {
 
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
-		connStr = "postgres://postgres:postgres@localhost:5433/test-query?sslmode=disable"
+		connStr = "postgres://root@localhost:26257/layerg?sslmode=disable"
 	}
 	db.InitDB(connStr)
 	s, err := graphql.NewSchema(graphql.SchemaConfig{

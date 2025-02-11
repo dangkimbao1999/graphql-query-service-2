@@ -31,11 +31,8 @@ func ExtractRequestedFields(info graphql.ResolveInfo) []string {
 // If the lowercased typeName already ends in "s", we assume it's plural and use it as is.
 // Otherwise, we append an "s".
 func deriveTableName(typeName string) string {
-	t := strings.ToLower(typeName)
-	if !strings.HasSuffix(t, "s") {
-		t += "s"
-	}
-	return t
+	return strings.ToLower(typeName)
+
 }
 
 // ResolveSingle builds a dynamic SQL query for a single record.
@@ -45,7 +42,7 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 		requested = []string{"id"}
 	}
 	tableName := deriveTableName(typeName)
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE id = '%s'",
+	query := fmt.Sprintf(`SELECT %s FROM "%s" WHERE id = '%s'`,
 		strings.Join(requested, ","), tableName, p.Args["id"].(string))
 	log.Println("SQL Query:", query)
 	row := db.DB.QueryRow(query)
@@ -80,7 +77,7 @@ func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, err
 		requested = []string{"id"}
 	}
 	tableName := deriveTableName(typeName)
-	query := fmt.Sprintf("SELECT %s FROM %s",
+	query := fmt.Sprintf(`SELECT %s FROM "%s"`,
 		strings.Join(requested, ","), tableName)
 	log.Println("SQL Query:", query)
 	rows, err := db.DB.Query(query)

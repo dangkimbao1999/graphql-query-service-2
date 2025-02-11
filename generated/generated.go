@@ -4,35 +4,62 @@ package generated
 import (
 	"github.com/graphql-go/graphql"
 	"query-service/core"
-
 )
+
+
+// Custom scalar DateType from core package.
+var DateType = core.DateType
+
 
 var QueryFields graphql.Fields
 
 
 // Declarations for the custom type and its WhereInput type
-var UsersType *graphql.Object
-var UsersWhereInputType *graphql.InputObject
+var UserType *graphql.Object
+var UserWhereInputType *graphql.InputObject
+
+// Declarations for the custom type and its WhereInput type
+var UserProfileType *graphql.Object
+var UserProfileWhereInputType *graphql.InputObject
 
 // Declarations for the custom type and its WhereInput type
 var PostType *graphql.Object
 var PostWhereInputType *graphql.InputObject
 
+// Declarations for the custom type and its WhereInput type
+var CollectionType *graphql.Object
+var CollectionWhereInputType *graphql.InputObject
+
 
 func init() {
 	
-	UsersType = graphql.NewObject(graphql.ObjectConfig{
-		Name: "Users",
+	UserType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "User",
 		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			return graphql.Fields{
-				"id": &graphql.Field{Type: graphql.ID},"name": &graphql.Field{Type: graphql.String},"posts": &graphql.Field{Type: graphql.NewList(PostType)},
+				"id": &graphql.Field{Type: graphql.ID},"name": &graphql.Field{Type: graphql.String},"email": &graphql.Field{Type: graphql.String},"createdDate": &graphql.Field{Type: core.DateType},"isActive": &graphql.Field{Type: graphql.Boolean},"profile": &graphql.Field{Type: UserProfileType},
 			}
 		}),
 	})
-	UsersWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
-		Name: "UsersWhereInput",
+	UserWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "UserWhereInput",
 		Fields: graphql.InputObjectConfigFieldMap{
-			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"name": &graphql.InputObjectFieldConfig{Type: graphql.String},"posts": &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"name": &graphql.InputObjectFieldConfig{Type: graphql.String},"email": &graphql.InputObjectFieldConfig{Type: graphql.String},"createdDate": &graphql.InputObjectFieldConfig{Type: graphql.String},"isActive": &graphql.InputObjectFieldConfig{Type: graphql.String},"profile": &graphql.InputObjectFieldConfig{Type: graphql.String},
+		},
+	})
+	
+	UserProfileType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "UserProfile",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"id": &graphql.Field{Type: graphql.ID},"bio": &graphql.Field{Type: graphql.String},"avatarUrl": &graphql.Field{Type: graphql.String},
+			}
+		}),
+	})
+	UserProfileWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "UserProfileWhereInput",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"bio": &graphql.InputObjectFieldConfig{Type: graphql.String},"avatarUrl": &graphql.InputObjectFieldConfig{Type: graphql.String},
 		},
 	})
 	
@@ -40,14 +67,29 @@ func init() {
 		Name: "Post",
 		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			return graphql.Fields{
-				"id": &graphql.Field{Type: graphql.ID},"title": &graphql.Field{Type: graphql.String},"content": &graphql.Field{Type: graphql.String},"author": &graphql.Field{Type: UsersType},
+				"id": &graphql.Field{Type: graphql.ID},"title": &graphql.Field{Type: graphql.String},"content": &graphql.Field{Type: graphql.String},"publishedDate": &graphql.Field{Type: core.DateType},"author": &graphql.Field{Type: UserType},
 			}
 		}),
 	})
 	PostWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
 		Name: "PostWhereInput",
 		Fields: graphql.InputObjectConfigFieldMap{
-			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"title": &graphql.InputObjectFieldConfig{Type: graphql.String},"content": &graphql.InputObjectFieldConfig{Type: graphql.String},"author": &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"title": &graphql.InputObjectFieldConfig{Type: graphql.String},"content": &graphql.InputObjectFieldConfig{Type: graphql.String},"publishedDate": &graphql.InputObjectFieldConfig{Type: graphql.String},"author": &graphql.InputObjectFieldConfig{Type: graphql.String},
+		},
+	})
+	
+	CollectionType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "Collection",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"id": &graphql.Field{Type: graphql.ID},"address": &graphql.Field{Type: graphql.String},"type": &graphql.Field{Type: graphql.String},
+			}
+		}),
+	})
+	CollectionWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "CollectionWhereInput",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"address": &graphql.InputObjectFieldConfig{Type: graphql.String},"type": &graphql.InputObjectFieldConfig{Type: graphql.String},
 		},
 	})
 	
@@ -56,25 +98,51 @@ func init() {
 	// For each entity, one query for find-one (by ID) and one for find-many.
 	QueryFields = graphql.Fields{
 		
-		"Users": &graphql.Field{
-			Type: UsersType,
+		"User": &graphql.Field{
+			Type: UserType,
 			Args: graphql.FieldConfigArgument{
 				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return core.ResolveSingle("Users", p)
+				// Pass the singular form to the resolve helper.
+				return core.ResolveSingle("User", p)
 			},
 		},
-		"Userss": &graphql.Field{
-			Type: graphql.NewList(UsersType),
+		"Users": &graphql.Field{
+			Type: graphql.NewList(UserType),
 			Args: graphql.FieldConfigArgument{
 				"page":  &graphql.ArgumentConfig{Type: graphql.Int},
 				"limit": &graphql.ArgumentConfig{Type: graphql.Int},
 				"order": &graphql.ArgumentConfig{Type: graphql.String},
-				"where": &graphql.ArgumentConfig{Type: UsersWhereInputType},
+				"where": &graphql.ArgumentConfig{Type: UserWhereInputType},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return core.ResolveMultiple("Users", p)
+				// Always pass the singular form for table name derivation.
+				return core.ResolveMultiple("User", p)
+			},
+		},
+		
+		"UserProfile": &graphql.Field{
+			Type: UserProfileType,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Pass the singular form to the resolve helper.
+				return core.ResolveSingle("UserProfile", p)
+			},
+		},
+		"UserProfiles": &graphql.Field{
+			Type: graphql.NewList(UserProfileType),
+			Args: graphql.FieldConfigArgument{
+				"page":  &graphql.ArgumentConfig{Type: graphql.Int},
+				"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				"order": &graphql.ArgumentConfig{Type: graphql.String},
+				"where": &graphql.ArgumentConfig{Type: UserProfileWhereInputType},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Always pass the singular form for table name derivation.
+				return core.ResolveMultiple("UserProfile", p)
 			},
 		},
 		
@@ -84,6 +152,7 @@ func init() {
 				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Pass the singular form to the resolve helper.
 				return core.ResolveSingle("Post", p)
 			},
 		},
@@ -96,7 +165,32 @@ func init() {
 				"where": &graphql.ArgumentConfig{Type: PostWhereInputType},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Always pass the singular form for table name derivation.
 				return core.ResolveMultiple("Post", p)
+			},
+		},
+		
+		"Collection": &graphql.Field{
+			Type: CollectionType,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Pass the singular form to the resolve helper.
+				return core.ResolveSingle("Collection", p)
+			},
+		},
+		"Collections": &graphql.Field{
+			Type: graphql.NewList(CollectionType),
+			Args: graphql.FieldConfigArgument{
+				"page":  &graphql.ArgumentConfig{Type: graphql.Int},
+				"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				"order": &graphql.ArgumentConfig{Type: graphql.String},
+				"where": &graphql.ArgumentConfig{Type: CollectionWhereInputType},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Always pass the singular form for table name derivation.
+				return core.ResolveMultiple("Collection", p)
 			},
 		},
 		
