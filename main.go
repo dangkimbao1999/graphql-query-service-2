@@ -29,16 +29,25 @@ func withCORS(h http.Handler) http.Handler {
 func playgroundRedirectHandler(w http.ResponseWriter, r *http.Request) {
 	// Redirect to Apollo Sandbox which expects the endpoint to be set in its UI.
 	// Note: Apollo Sandbox must be loaded in its own tab rather than embedded.
-	http.Redirect(w, r, "https://studio.apollographql.com/sandbox/explorer?endpoint=http://localhost:8081/graphql", http.StatusTemporaryRedirect)
+	http.Redirect(w, r, "https://studio.apollographql.com/sandbox/explorer?endpoint=http://localhost:8082/graphql", http.StatusTemporaryRedirect)
 }
 
 func main() {
+	log.Println("Starting server initialization...")
 
+	// Initialize database connection
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		connStr = "postgres://root@localhost:26257/layerg?sslmode=disable"
+		log.Printf("Using default connection string: %s", connStr)
 	}
+
+	log.Println("Initializing database connection...")
 	db.InitDB(connStr)
+	log.Println("Database connection established successfully")
+
+	// Create GraphQL schema
+	log.Println("Creating GraphQL schema...")
 	s, err := graphql.NewSchema(graphql.SchemaConfig{
 		Query: graphql.NewObject(graphql.ObjectConfig{
 			Name:   "Query",
@@ -46,18 +55,28 @@ func main() {
 		}),
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to create schema: %v", err)
 	}
+	log.Println("GraphQL schema created successfully")
 
+	// Configure the GraphQL handler
 	h := handler.New(&handler.Config{
 		Schema: &s,
 		Pretty: true,
 	})
-	// Wrap the GraphQL handler with CORS support.
+
+	// Set up routes with CORS
 	http.Handle("/graphql", withCORS(h))
 	// Provide a playground endpoint – here we redirect to Apollo Sandbox.
 	http.HandleFunc("/playground", playgroundRedirectHandler)
 
-	log.Println("Server running on :8081")
-	http.ListenAndServe(":8081", nil)
+	// Start the server
+	port := ":8082"
+	log.Printf("Server initialization complete. Starting HTTP server on port %s", port)
+	log.Printf("GraphQL endpoint: http://localhost%s/graphql", port)
+	log.Printf("GraphQL Playground: http://localhost%s/playground", port)
+
+	if err := http.ListenAndServe(port, nil); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }

@@ -19,7 +19,9 @@ func ExtractRequestedFields(info graphql.ResolveInfo) []string {
 		if f.SelectionSet != nil {
 			for _, sel := range f.SelectionSet.Selections {
 				if field, ok := sel.(*ast.Field); ok {
-					fields = append(fields, field.Name.Value)
+					// Convert field name to snake_case
+					fieldName := toSnakeCase(field.Name.Value)
+					fields = append(fields, fieldName)
 				}
 			}
 		}
@@ -27,12 +29,44 @@ func ExtractRequestedFields(info graphql.ResolveInfo) []string {
 	return fields
 }
 
+// toSnakeCase converts a camelCase string to snake_case
+func toSnakeCase(s string) string {
+	var result string
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result += "_"
+		}
+		result += strings.ToLower(string(r))
+	}
+	return result
+}
+
+// toCamelCase converts a snake_case string to camelCase
+func toCamelCase(s string) string {
+	var result string
+	capitalize := false
+	for i, r := range s {
+		if r == '_' {
+			capitalize = true
+			continue
+		}
+		if i == 0 {
+			result += strings.ToLower(string(r))
+		} else if capitalize {
+			result += strings.ToUpper(string(r))
+			capitalize = false
+		} else {
+			result += string(r)
+		}
+	}
+	return result
+}
+
 // deriveTableName returns the table name based on the type name.
 // If the lowercased typeName already ends in "s", we assume it's plural and use it as is.
 // Otherwise, we append an "s".
 func deriveTableName(typeName string) string {
-	return strings.ToLower(typeName)
-
+	return toSnakeCase(typeName)
 }
 
 // ResolveSingle builds a dynamic SQL query for a single record.
@@ -41,13 +75,55 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 	if len(requested) == 0 {
 		requested = []string{"id"}
 	}
+
 	tableName := deriveTableName(typeName)
-	query := fmt.Sprintf(`SELECT %s FROM "%s" WHERE id = '%s'`,
-		strings.Join(requested, ","), tableName, p.Args["id"].(string))
+
+	// Create field mapping
+	fieldToIndex := make(map[string]int)
+	currentIndex := 0
+
+	// Handle relationships
+	joins := []string{}
+	selectFields := []string{}
+
+	// First collect all direct fields
+	for _, field := range requested {
+		switch field {
+		case "posts":
+			continue // Skip adding to selectFields
+		case "author":
+			joins = append(joins, `LEFT JOIN "user" ON "post"."author_id" = "user"."id"`)
+			selectFields = append(selectFields, `"user"."id" as author_id, "user"."name" as author_name`)
+			fieldToIndex[field] = currentIndex
+			currentIndex++
+		case "profile":
+			joins = append(joins, `LEFT JOIN "user_profile" ON "user"."profile_id" = "user_profile"."id"`)
+			selectFields = append(selectFields, fmt.Sprintf(`"user_profile"."id" as profile_id, "user_profile"."bio", "user_profile"."avatar_url"`))
+			fieldToIndex[field] = currentIndex
+			currentIndex++
+		default:
+			selectFields = append(selectFields, fmt.Sprintf(`"%s"."%s"`, tableName, field))
+			fieldToIndex[field] = currentIndex
+			currentIndex++
+		}
+	}
+
+	// If no fields were added (only relationships requested), add id
+	if len(selectFields) == 0 {
+		selectFields = append(selectFields, fmt.Sprintf(`"%s"."id"`, tableName))
+		fieldToIndex["id"] = currentIndex
+	}
+
+	query := fmt.Sprintf(`SELECT DISTINCT %s FROM "%s" %s WHERE "%s"."id" = $1`,
+		strings.Join(selectFields, ","),
+		tableName,
+		strings.Join(joins, " "),
+		tableName)
+
 	log.Println("SQL Query:", query)
-	row := db.DB.QueryRow(query)
-	values := make([]interface{}, len(requested))
-	for i := range requested {
+	row := db.DB.QueryRow(query, p.Args["id"])
+	values := make([]interface{}, len(selectFields))
+	for i := range values {
 		var v sql.NullString
 		values[i] = &v
 	}
@@ -58,15 +134,51 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 		}
 		return nil, err
 	}
+
 	result := map[string]interface{}{}
-	for i, field := range requested {
-		val := values[i].(*sql.NullString)
+
+	// Map values using fieldToIndex and convert back to camelCase
+	for field, idx := range fieldToIndex {
+		val := values[idx].(*sql.NullString)
 		if val.Valid {
-			result[field] = val.String
-		} else {
-			result[field] = nil
+			// Convert back to camelCase for the response
+			camelField := toCamelCase(field)
+			result[camelField] = val.String
 		}
 	}
+
+	// Handle nested posts
+	if result != nil {
+		for _, field := range requested {
+			if field == "posts" && typeName == "User" {
+				postsQuery := `SELECT id, title, content, published_date FROM "post" WHERE "author_id" = $1`
+				rows, err := db.DB.Query(postsQuery, p.Args["id"])
+				if err != nil {
+					return nil, err
+				}
+				defer rows.Close()
+
+				var posts []map[string]interface{}
+				for rows.Next() {
+					var id, title, content sql.NullString
+					var publishedDate sql.NullTime
+					err := rows.Scan(&id, &title, &content, &publishedDate)
+					if err != nil {
+						return nil, err
+					}
+					post := map[string]interface{}{
+						"id":            id.String,
+						"title":         title.String,
+						"content":       content.String,
+						"publishedDate": publishedDate.Time,
+					}
+					posts = append(posts, post)
+				}
+				result["posts"] = posts
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -76,19 +188,89 @@ func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, err
 	if len(requested) == 0 {
 		requested = []string{"id"}
 	}
+
 	tableName := deriveTableName(typeName)
-	query := fmt.Sprintf(`SELECT %s FROM "%s"`,
-		strings.Join(requested, ","), tableName)
+
+	// Handle relationships
+	joins := []string{}
+	selectFields := []string{}
+	hasNestedFields := false
+	fieldToIndex := make(map[string]int) // Track field positions
+	currentIndex := 0
+
+	// Always include ID when posts are requested
+	needsId := false
+	for _, field := range requested {
+		if field == "posts" {
+			needsId = true
+			hasNestedFields = true
+			break
+		}
+	}
+
+	// If we need ID, add it first
+	if needsId {
+		selectFields = append(selectFields, fmt.Sprintf(`"%s"."id"`, tableName))
+		fieldToIndex["id"] = currentIndex
+		currentIndex++
+	}
+
+	// Add other requested fields
+	for _, field := range requested {
+		switch field {
+		case "posts":
+			continue
+		case "author":
+			joins = append(joins, `LEFT JOIN "user" ON "post"."author_id" = "user"."id"`)
+			selectFields = append(selectFields, `"user"."id" as author_id, "user"."name" as author_name`)
+			fieldToIndex[field] = currentIndex
+			currentIndex++
+		case "profile":
+			joins = append(joins, `LEFT JOIN "user_profile" ON "user"."profile_id" = "user_profile"."id"`)
+			selectFields = append(selectFields, `"user_profile"."id" as profile_id, "user_profile"."bio", "user_profile"."avatar_url"`)
+			fieldToIndex[field] = currentIndex
+			currentIndex++
+		default:
+			if field != "id" || !needsId { // Skip id if already added
+				selectFields = append(selectFields, fmt.Sprintf(`"%s"."%s"`, tableName, field))
+				fieldToIndex[field] = currentIndex
+				currentIndex++
+			}
+		}
+	}
+
+	// If no fields were added, add id
+	if len(selectFields) == 0 {
+		selectFields = append(selectFields, fmt.Sprintf(`"%s"."id"`, tableName))
+		fieldToIndex["id"] = 0
+	}
+
+	query := fmt.Sprintf(`SELECT DISTINCT %s FROM "%s" %s`,
+		strings.Join(selectFields, ","),
+		tableName,
+		strings.Join(joins, " "))
+
+	// Handle pagination
+	if page, ok := p.Args["page"].(int); ok {
+		limit := 10 // default limit
+		if lim, ok := p.Args["limit"].(int); ok {
+			limit = lim
+		}
+		offset := (page - 1) * limit
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+	}
+
 	log.Println("SQL Query:", query)
 	rows, err := db.DB.Query(query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var results []map[string]interface{}
 	for rows.Next() {
-		values := make([]interface{}, len(requested))
-		for i := range requested {
+		values := make([]interface{}, len(selectFields))
+		for i := range values {
 			var v sql.NullString
 			values[i] = &v
 		}
@@ -96,16 +278,61 @@ func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, err
 		if err != nil {
 			return nil, err
 		}
+
 		record := map[string]interface{}{}
-		for i, field := range requested {
-			val := values[i].(*sql.NullString)
+
+		// Map values to fields using fieldToIndex and convert back to camelCase
+		for field, idx := range fieldToIndex {
+			val := values[idx].(*sql.NullString)
 			if val.Valid {
-				record[field] = val.String
-			} else {
-				record[field] = nil
+				// Convert back to camelCase for the response
+				camelField := toCamelCase(field)
+				record[camelField] = val.String
 			}
 		}
+
+		// Handle nested posts if requested
+		if hasNestedFields {
+			userId, ok := record["id"].(string)
+			if ok {
+				postsQuery := `SELECT id, content FROM "post" WHERE "author_id" = $1`
+				postRows, err := db.DB.Query(postsQuery, userId)
+				if err != nil {
+					return nil, err
+				}
+				defer postRows.Close()
+
+				var posts []map[string]interface{}
+				for postRows.Next() {
+					var id, content sql.NullString
+					err := postRows.Scan(&id, &content)
+					if err != nil {
+						return nil, err
+					}
+					post := map[string]interface{}{}
+					if id.Valid {
+						post["id"] = id.String
+					}
+					if content.Valid {
+						post["content"] = content.String
+					}
+					posts = append(posts, post)
+				}
+				record["posts"] = posts
+			}
+		}
+
 		results = append(results, record)
 	}
 	return results, nil
+}
+
+// Helper function to check if a slice contains a string
+func contains(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }

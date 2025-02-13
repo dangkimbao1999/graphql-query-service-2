@@ -123,6 +123,8 @@ func mapFieldType(ft FieldType) string {
 		base = "graphql.Boolean"
 	case "Date":
 		base = "core.DateType" // Use your custom Date scalar (defined in core/scalars.go)
+	case "BigInt":
+		base = "core.BigIntType" // Use your custom Date scalar (defined in core/scalars.go)
 	default:
 		base = ft.Name + "Type"
 	}

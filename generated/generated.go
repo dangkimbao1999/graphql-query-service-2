@@ -30,6 +30,10 @@ var PostWhereInputType *graphql.InputObject
 var CollectionType *graphql.Object
 var CollectionWhereInputType *graphql.InputObject
 
+// Declarations for the custom type and its WhereInput type
+var TransferType *graphql.Object
+var TransferWhereInputType *graphql.InputObject
+
 
 func init() {
 	
@@ -37,14 +41,14 @@ func init() {
 		Name: "User",
 		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			return graphql.Fields{
-				"id": &graphql.Field{Type: graphql.ID},"name": &graphql.Field{Type: graphql.String},"email": &graphql.Field{Type: graphql.String},"createdDate": &graphql.Field{Type: core.DateType},"isActive": &graphql.Field{Type: graphql.Boolean},"profile": &graphql.Field{Type: UserProfileType},
+				"id": &graphql.Field{Type: graphql.ID},"name": &graphql.Field{Type: graphql.String},"email": &graphql.Field{Type: graphql.String},"createdDate": &graphql.Field{Type: core.DateType},"isActive": &graphql.Field{Type: graphql.Boolean},"profile": &graphql.Field{Type: UserProfileType},"posts": &graphql.Field{Type: graphql.NewList(PostType)},
 			}
 		}),
 	})
 	UserWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
 		Name: "UserWhereInput",
 		Fields: graphql.InputObjectConfigFieldMap{
-			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"name": &graphql.InputObjectFieldConfig{Type: graphql.String},"email": &graphql.InputObjectFieldConfig{Type: graphql.String},"createdDate": &graphql.InputObjectFieldConfig{Type: graphql.String},"isActive": &graphql.InputObjectFieldConfig{Type: graphql.String},"profile": &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"name": &graphql.InputObjectFieldConfig{Type: graphql.String},"email": &graphql.InputObjectFieldConfig{Type: graphql.String},"createdDate": &graphql.InputObjectFieldConfig{Type: graphql.String},"isActive": &graphql.InputObjectFieldConfig{Type: graphql.String},"profile": &graphql.InputObjectFieldConfig{Type: graphql.String},"posts": &graphql.InputObjectFieldConfig{Type: graphql.String},
 		},
 	})
 	
@@ -90,6 +94,21 @@ func init() {
 		Name: "CollectionWhereInput",
 		Fields: graphql.InputObjectConfigFieldMap{
 			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"address": &graphql.InputObjectFieldConfig{Type: graphql.String},"type": &graphql.InputObjectFieldConfig{Type: graphql.String},
+		},
+	})
+	
+	TransferType = graphql.NewObject(graphql.ObjectConfig{
+		Name: "Transfer",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				"id": &graphql.Field{Type: graphql.ID},"from": &graphql.Field{Type: graphql.String},"to": &graphql.Field{Type: graphql.String},"amount": &graphql.Field{Type: core.BigIntType},"timestamp": &graphql.Field{Type: core.DateType},
+			}
+		}),
+	})
+	TransferWhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "TransferWhereInput",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"id": &graphql.InputObjectFieldConfig{Type: graphql.String},"from": &graphql.InputObjectFieldConfig{Type: graphql.String},"to": &graphql.InputObjectFieldConfig{Type: graphql.String},"amount": &graphql.InputObjectFieldConfig{Type: graphql.String},"timestamp": &graphql.InputObjectFieldConfig{Type: graphql.String},
 		},
 	})
 	
@@ -191,6 +210,30 @@ func init() {
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Always pass the singular form for table name derivation.
 				return core.ResolveMultiple("Collection", p)
+			},
+		},
+		
+		"Transfer": &graphql.Field{
+			Type: TransferType,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Pass the singular form to the resolve helper.
+				return core.ResolveSingle("Transfer", p)
+			},
+		},
+		"Transfers": &graphql.Field{
+			Type: graphql.NewList(TransferType),
+			Args: graphql.FieldConfigArgument{
+				"page":  &graphql.ArgumentConfig{Type: graphql.Int},
+				"limit": &graphql.ArgumentConfig{Type: graphql.Int},
+				"order": &graphql.ArgumentConfig{Type: graphql.String},
+				"where": &graphql.ArgumentConfig{Type: TransferWhereInputType},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				// Always pass the singular form for table name derivation.
+				return core.ResolveMultiple("Transfer", p)
 			},
 		},
 		
