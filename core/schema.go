@@ -30,3 +30,17 @@ func LoadSchema(path string) (*Schema, error) {
 	}
 	return s, nil
 }
+
+func (s *Schema) GetFieldType(typeName, fieldName string) ast.Type {
+	typeObj, exists := s.Types[typeName]
+	if !exists {
+		return nil
+	}
+
+	for _, field := range typeObj.Fields {
+		if field.Name.Value == fieldName {
+			return field.Type
+		}
+	}
+	return nil
+}

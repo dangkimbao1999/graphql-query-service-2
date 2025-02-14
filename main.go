@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"query-service/core"
 	"query-service/db"
 	"query-service/generated"
 
@@ -46,12 +47,20 @@ func main() {
 	db.InitDB(connStr)
 	log.Println("Database connection established successfully")
 
+	// Load schema
+	schema, err := core.LoadSchema("schema.graphql")
+	if err != nil {
+		log.Fatalf("Failed to load schema: %v", err)
+	}
+
+	// Create query resolver with schema
+	resolver := &core.QueryResolver{Schema: schema}
+
 	// Create GraphQL schema
-	log.Println("Creating GraphQL schema...")
 	s, err := graphql.NewSchema(graphql.SchemaConfig{
 		Query: graphql.NewObject(graphql.ObjectConfig{
 			Name:   "Query",
-			Fields: generated.QueryFields,
+			Fields: generated.CreateQueryFields(resolver),
 		}),
 	})
 	if err != nil {

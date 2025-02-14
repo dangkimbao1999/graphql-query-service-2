@@ -10,7 +10,13 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
+	"github.com/graphql-go/graphql/language/kinds"
 )
+
+// QueryResolver represents the query resolver
+type QueryResolver struct {
+	Schema *Schema
+}
 
 // ExtractRequestedFields inspects p.Info to extract the list of requested field names.
 func ExtractRequestedFields(info graphql.ResolveInfo) []string {
@@ -69,8 +75,33 @@ func deriveTableName(typeName string) string {
 	return toSnakeCase(typeName)
 }
 
+// isDateField checks if a field is a date type by looking at the GraphQL schema
+func (r *QueryResolver) isDateField(typeName, fieldName string) bool {
+	// Get the type definition from schema
+	typeObj, exists := r.Schema.Types[typeName]
+	if !exists {
+		return false
+	}
+
+	// Look for the field in the type definition
+	for _, field := range typeObj.Fields {
+		if field.Name.Value == toCamelCase(fieldName) {
+			// Check if it's a custom scalar type
+			if field.Type.GetKind() == kinds.Named {
+				namedType := field.Type.(*ast.Named)
+				// Check if the type is one of our date scalars
+				switch namedType.Name.Value {
+				case "DateTime", "Date", "Time", "Timestamp":
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // ResolveSingle builds a dynamic SQL query for a single record.
-func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error) {
+func (r *QueryResolver) ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error) {
 	requested := ExtractRequestedFields(p.Info)
 	if len(requested) == 0 {
 		requested = []string{"id"}
@@ -124,8 +155,20 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 	row := db.DB.QueryRow(query, p.Args["id"])
 	values := make([]interface{}, len(selectFields))
 	for i := range values {
-		var v sql.NullString
-		values[i] = &v
+		// Check if the current field is a date field
+		var field string
+		for f, idx := range fieldToIndex {
+			if idx == i {
+				field = f
+				break
+			}
+		}
+
+		if r.isDateField(typeName, field) {
+			values[i] = &sql.NullTime{}
+		} else {
+			values[i] = &sql.NullString{}
+		}
 	}
 	err := row.Scan(values...)
 	if err != nil {
@@ -139,11 +182,18 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 
 	// Map values using fieldToIndex and convert back to camelCase
 	for field, idx := range fieldToIndex {
-		val := values[idx].(*sql.NullString)
-		if val.Valid {
-			// Convert back to camelCase for the response
-			camelField := toCamelCase(field)
-			result[camelField] = val.String
+		if r.isDateField(typeName, field) {
+			val := values[idx].(*sql.NullTime)
+			if val.Valid {
+				camelField := toCamelCase(field)
+				result[camelField] = val.Time
+			}
+		} else {
+			val := values[idx].(*sql.NullString)
+			if val.Valid {
+				camelField := toCamelCase(field)
+				result[camelField] = val.String
+			}
 		}
 	}
 
@@ -183,7 +233,7 @@ func ResolveSingle(typeName string, p graphql.ResolveParams) (interface{}, error
 }
 
 // ResolveMultiple builds a dynamic SQL query for multiple records.
-func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, error) {
+func (r *QueryResolver) ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, error) {
 	requested := ExtractRequestedFields(p.Info)
 	if len(requested) == 0 {
 		requested = []string{"id"}
@@ -271,8 +321,20 @@ func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, err
 	for rows.Next() {
 		values := make([]interface{}, len(selectFields))
 		for i := range values {
-			var v sql.NullString
-			values[i] = &v
+			// Check if the current field is a date field
+			var field string
+			for f, idx := range fieldToIndex {
+				if idx == i {
+					field = f
+					break
+				}
+			}
+
+			if r.isDateField(typeName, field) {
+				values[i] = &sql.NullTime{}
+			} else {
+				values[i] = &sql.NullString{}
+			}
 		}
 		err := rows.Scan(values...)
 		if err != nil {
@@ -283,11 +345,18 @@ func ResolveMultiple(typeName string, p graphql.ResolveParams) (interface{}, err
 
 		// Map values to fields using fieldToIndex and convert back to camelCase
 		for field, idx := range fieldToIndex {
-			val := values[idx].(*sql.NullString)
-			if val.Valid {
-				// Convert back to camelCase for the response
-				camelField := toCamelCase(field)
-				record[camelField] = val.String
+			if r.isDateField(typeName, field) {
+				val := values[idx].(*sql.NullTime)
+				if val.Valid {
+					camelField := toCamelCase(field)
+					record[camelField] = val.Time
+				}
+			} else {
+				val := values[idx].(*sql.NullString)
+				if val.Valid {
+					camelField := toCamelCase(field)
+					record[camelField] = val.String
+				}
 			}
 		}
 

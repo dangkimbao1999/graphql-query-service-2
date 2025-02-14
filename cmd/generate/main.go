@@ -143,29 +143,18 @@ import (
 )
 
 {{if .HasDate}}
-// Custom scalar DateType from core package.
 var DateType = core.DateType
 {{end}}
 
-var QueryFields graphql.Fields
-
-{{range .Types}}
-// Declarations for the custom type and its WhereInput type
-var {{.TypeName}}Type *graphql.Object
-var {{.TypeName}}WhereInputType *graphql.InputObject
-{{end}}
-
-func init() {
+func CreateQueryFields(resolver *core.QueryResolver) graphql.Fields {
+	// Pre-declare all types to handle forward references
 	{{range .Types}}
-	{{.TypeName}}Type = graphql.NewObject(graphql.ObjectConfig{
-		Name: "{{.TypeName}}",
-		Fields: graphql.FieldsThunk(func() graphql.Fields {
-			return graphql.Fields{
-				{{range .Fields}}"{{.Name}}": &graphql.Field{Type: {{.Type}}},{{end}}
-			}
-		}),
-	})
-	{{.TypeName}}WhereInputType = graphql.NewInputObject(graphql.InputObjectConfig{
+	var {{.TypeName}}Type *graphql.Object
+	{{end}}
+
+	// Define all input types first since they don't have relationships
+	{{range .Types}}
+	{{.TypeName}}WhereInputType := graphql.NewInputObject(graphql.InputObjectConfig{
 		Name: "{{.TypeName}}WhereInput",
 		Fields: graphql.InputObjectConfigFieldMap{
 			{{range .Fields}}"{{.Name}}": &graphql.InputObjectFieldConfig{Type: graphql.String},{{end}}
@@ -173,9 +162,23 @@ func init() {
 	})
 	{{end}}
 
-	// Build the QueryFields map with two queries per entity.
-	// For each entity, one query for find-one (by ID) and one for find-many.
-	QueryFields = graphql.Fields{
+	// Now define all object types with their relationships
+	{{range .Types}}
+	{{.TypeName}}Type = graphql.NewObject(graphql.ObjectConfig{
+		Name: "{{.TypeName}}",
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			return graphql.Fields{
+				{{range .Fields}}
+				"{{.Name}}": &graphql.Field{
+					Type: {{if eq .Type "UserType"}}UserType{{else if eq .Type "PostType"}}PostType{{else if eq .Type "UserProfileType"}}UserProfileType{{else if eq .Type "graphql.NewList(PostType)"}}graphql.NewList(PostType){{else}}{{.Type}}{{end}},
+				},
+				{{end}}
+			}
+		}),
+	})
+	{{end}}
+
+	return graphql.Fields{
 		{{range .Types}}
 		"{{singular .TypeName}}": &graphql.Field{
 			Type: {{.TypeName}}Type,
@@ -183,8 +186,7 @@ func init() {
 				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Pass the singular form to the resolve helper.
-				return core.ResolveSingle("{{singular .TypeName}}", p)
+				return resolver.ResolveSingle("{{singular .TypeName}}", p)
 			},
 		},
 		"{{plural .TypeName}}": &graphql.Field{
@@ -196,11 +198,9 @@ func init() {
 				"where": &graphql.ArgumentConfig{Type: {{.TypeName}}WhereInputType},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Always pass the singular form for table name derivation.
-				return core.ResolveMultiple("{{singular .TypeName}}", p)
+				return resolver.ResolveMultiple("{{singular .TypeName}}", p)
 			},
 		},
 		{{end}}
 	}
-}
-`
+}`
